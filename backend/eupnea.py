@@ -1,10 +1,12 @@
 from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
+from twisted.internet.threads import deferToThread
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import json
 from collections import deque
 import time
+import argparse
 
 
 class CircularBuffer:
@@ -30,7 +32,7 @@ requests.packages.urllib3.disable_warnings()
 
 data_cache = {}
 prev_data = {}
-executor = ThreadPoolExecutor(max_workers=8)
+executor = ThreadPoolExecutor(max_workers=16)
 
 
 def fetch_json_data(api_endpoint, token, path):
@@ -38,8 +40,7 @@ def fetch_json_data(api_endpoint, token, path):
     TIMEOUT = 3  # in seconds
 
     url = f"{api_endpoint}{path}"
-    response = requests.get(url, headers=HEADERS,
-                            verify=False, timeout=TIMEOUT)
+    response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
     response.raise_for_status()
     return response.json().get("data", {})
 
@@ -104,10 +105,8 @@ def calculate_rate(current, prev, time_elapsed):
 
 def get_node_data(api_endpoint, token, node):
     node_name = node.get("node")
-    node_status = fetch_json_data(
-        api_endpoint, token, f"/nodes/{node_name}/status")
-    containers = fetch_json_data(
-        api_endpoint, token, f"/nodes/{node_name}/lxc")
+    node_status = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/status")
+    containers = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/lxc")
     containers = sorted(containers, key=lambda x: x.get("vmid", 0))
 
     return {
@@ -125,26 +124,46 @@ def get_node_data(api_endpoint, token, node):
     }
 
 
+def process_container_results(results, all_nodes_data):
+    all_nodes_data.extend(result for success, result in results if success)
+
+
+def process_results(results, all_nodes_data, NODE_CONFIGS):
+    for (success, nodes), config in zip(results, NODE_CONFIGS):
+        if not success:
+            print(f"Error fetching nodes for config {config}: {nodes}")
+            continue
+
+        api_endpoint = config.get("endpoint")
+        token = config.get("token")
+        nodes = sorted(nodes, key=lambda x: x.get("node", ""))
+
+        container_futures = [
+            deferToThread(get_node_data, api_endpoint, token, node) for node in nodes
+        ]
+
+        container_dlist = defer.DeferredList(container_futures)
+        container_dlist.addCallback(process_container_results, all_nodes_data)
+
+    global data_cache
+    data_cache = {"nodes": all_nodes_data}  # Updating the data_cache here.
+
+
 def update_cache():
     try:
         all_nodes_data = []
 
-        futures = [executor.submit(fetch_json_data, config.get(
-            "endpoint"), config.get("token"), "/nodes") for config in NODE_CONFIGS]
+        deferreds = [
+            deferToThread(
+                fetch_json_data, config.get("endpoint"), config.get("token"), "/nodes"
+            )
+            for config in NODE_CONFIGS
+        ]
 
-        for config, future in zip(NODE_CONFIGS, futures):
-            api_endpoint = config.get("endpoint")
-            token = config.get("token")
-            nodes = sorted(future.result(), key=lambda x: x.get("node", ""))
+        dlist = defer.DeferredList(deferreds)
+        dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
+        dlist.addCallback(lambda _: reactor.callLater(5, update_cache))
 
-            container_futures = [executor.submit(
-                get_node_data, api_endpoint, token, node) for node in nodes]
-            nodes_data = [f.result() for f in container_futures]
-
-            all_nodes_data.extend(nodes_data)
-
-        data_cache["data"] = all_nodes_data
-        reactor.callLater(5, update_cache)
     except Exception as e:
         print(f"Error updating cache: {e}")
 
@@ -164,7 +183,7 @@ class MyServerProtocol(WebSocketServerProtocol):
 
         # Send whatever is in the cache immediately
         self.sendMessage(json.dumps(data_cache).encode("utf-8"))
-        
+
         # Continue by sending updates every 5 seconds
         reactor.callLater(5, self.send_updates)
 
@@ -189,15 +208,16 @@ class MyServerProtocol(WebSocketServerProtocol):
         print(f"WebSocket connection closed. Reason: {reason}")
         self.is_connected = False
 
+
 if __name__ == "__main__":
     try:
-        # Start the continuous cache update immediately
+        # Preload the cache before starting the reactor.
         reactor.callLater(0, update_cache)
 
-        factory = WebSocketServerFactory("ws://127.0.0.1:5050")
+        factory = WebSocketServerFactory(f"ws://127.0.0.1:{args.port}")
         factory.protocol = MyServerProtocol
 
-        reactor.listenTCP(5050, factory)
+        reactor.listenTCP(args.port, factory)
         print(f"Server running at {factory.url}")
         reactor.run()
     except Exception as e:
