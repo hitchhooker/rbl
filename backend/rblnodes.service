@@ -6,8 +6,8 @@ After=network.target
 Type=simple
 User=eupneauser
 Group=eupneauser
-WorkingDirectory=/opt/gh/unlabored-dashboard/backend
-ExecStart=/usr/local/bin/eupnea
+WorkingDirectory=/opt/gh/rbl/backend
+ExecStart=/opt/gh/rbl/backend/dist/eupnea
 Restart=on-failure
 RestartSec=10
 

@@ -188,10 +188,10 @@ class MyServerProtocol(WebSocketServerProtocol):
 if __name__ == "__main__":
     try:
         update_cache()
-        factory = WebSocketServerFactory("ws://127.0.0.1:5000")
+        factory = WebSocketServerFactory("ws://127.0.0.1:5050")
         factory.protocol = MyServerProtocol
 
-        reactor.listenTCP(5000, factory)
+        reactor.listenTCP(5050, factory)
         print(f"Server running at {factory.url}")
         reactor.run()
     except Exception as e:

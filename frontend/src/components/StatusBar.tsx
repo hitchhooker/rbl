@@ -3,15 +3,14 @@ interface UsageBarProps {
 }
 
 function UsageBar({ status }: UsageBarProps) {
-  
-  // Determine the color based on the status
+
   let bgColor;
   switch (status) {
     case "running":
-      bgColor = "bg-green-500";
+      bgColor = "bg-hex-AECE4B"; // Neon Green
       break;
     case "stopped":
-      bgColor = "bg-red-500";
+      bgColor = "bg-red";
       break;
     case "paused":
       bgColor = "bg-yellow-500";
