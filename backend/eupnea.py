@@ -161,7 +161,12 @@ class MyServerProtocol(WebSocketServerProtocol):
     def onOpen(self):
         print("WebSocket connection open.")
         self.is_connected = True
-        reactor.callLater(0, self.send_updates)
+
+        # Send whatever is in the cache immediately
+        self.sendMessage(json.dumps(data_cache).encode("utf-8"))
+        
+        # Continue by sending updates every 5 seconds
+        reactor.callLater(5, self.send_updates)
 
     def send_updates(self):
         if not self.is_connected:
@@ -176,7 +181,7 @@ class MyServerProtocol(WebSocketServerProtocol):
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
 
-            reactor.callLater(5, self.send_updates)  # update every 10 seconds
+            reactor.callLater(10, self.send_updates)  # update every 10 seconds
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
@@ -184,10 +189,11 @@ class MyServerProtocol(WebSocketServerProtocol):
         print(f"WebSocket connection closed. Reason: {reason}")
         self.is_connected = False
 
-
 if __name__ == "__main__":
     try:
-        update_cache()
+        # Start the continuous cache update immediately
+        reactor.callLater(0, update_cache)
+
         factory = WebSocketServerFactory("ws://127.0.0.1:5050")
         factory.protocol = MyServerProtocol
 
