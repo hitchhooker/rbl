@@ -148,8 +148,9 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
     # Locking the data update section
     global data_cache
     with data_lock:
-        data_cache = {"data": all_nodes_data}  # Updating the data_cache here.
-        data_cache_version += 1  # Increment the data version
+        data_cache = {"data": sorted(all_nodes_data, key=lambda x: x["name"].lower())}
+        data_cache_version += 1
+
 
 def update_data_cache(all_nodes_data):
     global data_cache
@@ -157,6 +158,7 @@ def update_data_cache(all_nodes_data):
     with data_lock:
         data_cache = {"data": all_nodes_data}
         data_cache_version += 1
+
 
 def update_cache():
     try:
@@ -182,7 +184,7 @@ class MyServerProtocol(WebSocketServerProtocol):
     def __init__(self):
         super().__init__()
         self.is_connected = False
-        self.last_sent_version = 0 
+        self.last_sent_version = 0
 
     def onConnect(self, request):
         print(f"Client connecting: {request.peer}")
