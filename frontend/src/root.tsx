@@ -26,9 +26,9 @@ export default function Root() {
         <Suspense>
           <ErrorBoundary>
             <div class="flex w-full bg-op-80 bg-hex-AECE4B justify-center">
-              <div class="flex">
-                <A class="bg-hex-14B3B1 text-hex-fff filter-drop-shadow px-10 py-4 mr-0 shadow-xl" href="https://romenet.io/">Home</A>
-                <A class="bg-hex-14B3B1 text-hex-fff filter-drop-shadow px-10 py-4 mx-0 shadow-xl" href="/">Monitor</A>
+              <div class="flex text-bold no-underline font-lato">
+                <A class="bg-hex-14B3B1 text-hex-fff no-underline filter-drop-shadow px-10 py-4 mr-0 shadow-xl" href="https://romenet.io/">Home</A>
+                <A class="bg-hex-14B3B1 text-hex-fff no-underline filter-drop-shadow px-10 py-4 mx-0 shadow-xl" href="/">Monitor</A>
               </div>
             </div>
             <Routes>
