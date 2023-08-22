@@ -103,9 +103,20 @@ def get_container_data(api_endpoint, token, node_name, container):
     }
 
 
+def get_zfs_storage_data(api_endpoint, token, node_name):
+    zfs_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/storage/zfs_storage/status"
+    )
+    return {
+        "zfs_total": zfs_status.get("total", 0),
+        "zfs_used": zfs_status.get("used", 0),
+    }
+
+
 def get_node_data(api_endpoint, token, node):
     node_name = node.get("node")
     node_status = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/status")
+    zfs_data = get_zfs_storage_data(api_endpoint, token, node_name)
     containers = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/lxc")
     containers = sorted(containers, key=lambda x: x.get("vmid", 0))
 
@@ -122,6 +133,7 @@ def get_node_data(api_endpoint, token, node):
             )
         ),
         "last_updated": time.time(),
+        **zfs_data,
     }
 
 
