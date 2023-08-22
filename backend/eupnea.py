@@ -35,7 +35,7 @@ executor = ThreadPoolExecutor(max_workers=8)
 
 def fetch_json_data(api_endpoint, token, path):
     HEADERS = {"Authorization": token}
-    TIMEOUT = 3  # in seconds
+    TIMEOUT = 5  # in seconds
 
     url = f"{api_endpoint}{path}"
     response = requests.get(url, headers=HEADERS,
@@ -144,7 +144,7 @@ def update_cache():
             all_nodes_data.extend(nodes_data)
 
         data_cache["data"] = all_nodes_data
-        reactor.callLater(5, update_cache)
+        reactor.callLater(30, update_cache)
     except Exception as e:
         print(f"Error updating cache: {e}")
 
@@ -176,7 +176,7 @@ class MyServerProtocol(WebSocketServerProtocol):
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
 
-            reactor.callLater(5, self.send_updates)  # update every 10 seconds
+            reactor.callLater(30, self.send_updates)  # update every 10 seconds
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
