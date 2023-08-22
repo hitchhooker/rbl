@@ -4,3 +4,4 @@ build/
 dist/
 eupnea.spec
 .nodes.json
+.nodes.json.full

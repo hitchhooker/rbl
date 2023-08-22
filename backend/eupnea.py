@@ -117,6 +117,7 @@ def get_zfs_storage_data(api_endpoint, token, node_name):
     return {
         "storage_used": zfs_status.get("used", 0),
         "storage_total": zfs_status.get("total", 0),
+        "storage_type": zfs_status.get("type", ""),
     }
 
 
@@ -127,6 +128,7 @@ def get_btrfs_storage_data(api_endpoint, token, node_name):
     return {
         "storage_used": btrfs_status.get("used", 0),
         "storage_total": btrfs_status.get("total", 0),
+        "storage_type": btrfs_status.get("type", ""),
     }
 
 
