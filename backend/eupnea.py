@@ -40,7 +40,8 @@ def fetch_json_data(api_endpoint, token, path):
     TIMEOUT = 15
 
     url = f"{api_endpoint}{path}"
-    response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
+    response = requests.get(url, headers=HEADERS,
+                            verify=False, timeout=TIMEOUT)
     response.raise_for_status()
     return response.json().get("data", {})
 
@@ -103,11 +104,50 @@ def get_container_data(api_endpoint, token, node_name, container):
     }
 
 
+def fetch_storage_types(api_endpoint, token, node_name):
+    storages = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/storage")
+    return [storage.get("storage") for storage in storages]
+
+
+def get_zfs_storage_data(api_endpoint, token, node_name):
+    zfs_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/storage/zfs_storage/status"
+    )
+    return {
+        "storage_used": zfs_status.get("used", 0),
+        "storage_total": zfs_status.get("total", 0),
+        "storage_type": zfs_status.get("type", ""),
+    }
+
+
+def get_btrfs_storage_data(api_endpoint, token, node_name):
+    btrfs_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/storage/btrfs_storage/status"
+    )
+    return {
+        "storage_used": btrfs_status.get("used", 0),
+        "storage_total": btrfs_status.get("total", 0),
+        "storage_type": btrfs_status.get("type", ""),
+    }
+
+
 def get_node_data(api_endpoint, token, node):
     node_name = node.get("node")
-    node_status = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/status")
-    containers = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/lxc")
+    node_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/status")
+    containers = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/lxc")
     containers = sorted(containers, key=lambda x: x.get("vmid", 0))
+
+    storage_types = fetch_storage_types(api_endpoint, token, node_name)
+
+    # Here's where you can check the type of storage and fetch accordingly
+    storage_data = {}
+    if "zfs_storage" in storage_types:
+        storage_data = get_zfs_storage_data(api_endpoint, token, node_name)
+    elif "btrfs_storage" in storage_types:
+        storage_data = get_btrfs_storage_data(api_endpoint, token, node_name)
 
     return {
         "name": node_name,
@@ -122,6 +162,7 @@ def get_node_data(api_endpoint, token, node):
             )
         ),
         "last_updated": time.time(),
+        **storage_data,
     }
 
 
@@ -144,7 +185,8 @@ def update_data_cache(new_data):
         # Check if data has changed
         if data_has_changed(data_cache.get("data", []), new_data):
             # Merge data
-            old_data_map = {node["name"]: node for node in data_cache.get("data", [])}
+            old_data_map = {node["name"]
+                : node for node in data_cache.get("data", [])}
             for node in new_data:
                 old_data_map[node["name"]] = node
             merged_data = list(old_data_map.values())
@@ -183,7 +225,8 @@ def update_cache():
     try:
         deferreds = [
             deferToThread(
-                fetch_json_data, config.get("endpoint"), config.get("token"), "/nodes"
+                fetch_json_data, config.get(
+                    "endpoint"), config.get("token"), "/nodes"
             )
             for config in NODE_CONFIGS
         ]
@@ -224,7 +267,8 @@ class MyServerProtocol(WebSocketServerProtocol):
                             data_cache.get("data", []), key=lambda x: x["name"]
                         )
                         data_to_send = {"data": sorted_data}
-                        self.sendMessage(json.dumps(data_to_send).encode("utf-8"))
+                        self.sendMessage(json.dumps(
+                            data_to_send).encode("utf-8"))
                         self.last_sent_version = data_cache_version
                 reactor.callLater(1, self.send_updates)
             else:
@@ -238,7 +282,8 @@ class MyServerProtocol(WebSocketServerProtocol):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WebSocket server for node data.")
+    parser = argparse.ArgumentParser(
+        description="WebSocket server for node data.")
     parser.add_argument(
         "--port", type=int, required=True, help="Port to run the WebSocket server on."
     )
