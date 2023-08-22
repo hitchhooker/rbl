@@ -1,12 +1,24 @@
-from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
-from twisted.internet import reactor, defer
-from twisted.internet.threads import deferToThread
-import requests
-import json
-from collections import deque
-import time
 import argparse
+import json
 import threading
+import time
+from collections import deque
+
+import requests
+from autobahn.twisted.websocket import WebSocketServerFactory, WebSocketServerProtocol
+from twisted.internet import defer, reactor
+from twisted.internet.threads import deferToThread
+
+# Constants
+RATES_WINDOW = 5
+PRUNE_THRESHOLD = 120  # 2 minutes in seconds
+requests.packages.urllib3.disable_warnings()
+
+# Global Variables
+data_cache = {}
+data_lock = threading.Lock()
+data_cache_version = 0
+prev_data = {}
 
 
 class CircularBuffer:
@@ -23,25 +35,19 @@ class CircularBuffer:
         return self.data[-1] if self.data else None
 
 
-with open(".nodes.json", "r") as f:
-    NODE_CONFIGS = json.load(f)
-
-RATES_WINDOW = 5
-requests.packages.urllib3.disable_warnings()
-data_cache = {}
-data_lock = threading.Lock()
-data_cache_version = 0
-prev_data = {}
-
-
 def fetch_json_data(api_endpoint, token, path):
     HEADERS = {"Authorization": token}
-    TIMEOUT = 15  # in seconds
+    TIMEOUT = 15
 
     url = f"{api_endpoint}{path}"
-    response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
+    response = requests.get(url, headers=HEADERS,
+                            verify=False, timeout=TIMEOUT)
     response.raise_for_status()
     return response.json().get("data", {})
+
+
+def calculate_rate(current, prev, time_elapsed):
+    return (current - prev) * 8 / time_elapsed  # bps rate
 
 
 def get_container_data(api_endpoint, token, node_name, container):
@@ -98,14 +104,12 @@ def get_container_data(api_endpoint, token, node_name, container):
     }
 
 
-def calculate_rate(current, prev, time_elapsed):
-    return (current - prev) * 8 / time_elapsed  # bps rate
-
-
 def get_node_data(api_endpoint, token, node):
     node_name = node.get("node")
-    node_status = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/status")
-    containers = fetch_json_data(api_endpoint, token, f"/nodes/{node_name}/lxc")
+    node_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/status")
+    containers = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/lxc")
     containers = sorted(containers, key=lambda x: x.get("vmid", 0))
 
     return {
@@ -120,16 +124,43 @@ def get_node_data(api_endpoint, token, node):
                 containers,
             )
         ),
+        "last_updated": time.time(),
     }
 
 
-def process_container_results(results, all_nodes_data):
-    all_nodes_data.extend(result for success, result in results if success)
+def prune_old_data():
+    global data_cache
+    with data_lock:
+        current_time = time.time()
+        data_cache["data"] = [
+            node
+            for node in data_cache.get("data", [])
+            if current_time - node.get("last_updated", 0) < PRUNE_THRESHOLD
+        ]
+    # Schedule next pruning
+    reactor.callLater(60, prune_old_data)
 
 
-def process_results(results, all_nodes_data, NODE_CONFIGS):
-    global data_cache_version
-    for (success, nodes), config in zip(results, NODE_CONFIGS):
+def update_data_cache(new_data):
+    global data_cache, data_cache_version
+    with data_lock:
+        # Check if data has changed
+        if data_has_changed(data_cache.get("data", []), new_data):
+            # Merge data
+            old_data_map = {node["name"]                            : node for node in data_cache.get("data", [])}
+            for node in new_data:
+                old_data_map[node["name"]] = node
+            merged_data = list(old_data_map.values())
+
+            data_cache = {"data": merged_data}
+            data_cache_version += 1
+
+
+def process_results(results, configs):
+    all_nodes_data = []
+    all_container_futures = []
+
+    for (success, nodes), config in zip(results, configs):
         if not success:
             print(f"Error fetching nodes for config {config}: {nodes}")
             continue
@@ -138,45 +169,32 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
         token = config.get("token")
         nodes = sorted(nodes, key=lambda x: x.get("node", "").lower())
 
-        container_futures = [
-            deferToThread(get_node_data, api_endpoint, token, node) for node in nodes
-        ]
+        for node in nodes:
+            future = deferToThread(get_node_data, api_endpoint, token, node)
+            future.addCallback(lambda result: all_nodes_data.append(result))
+            all_container_futures.append(future)
 
-        container_dlist = defer.DeferredList(container_futures)
-        container_dlist.addCallback(process_container_results, all_nodes_data)
-        container_dlist.addCallback(lambda _: update_data_cache(all_nodes_data))
-
-    # Locking the data update section
-    global data_cache
-    with data_lock:
-        data_cache = {"data": sorted(all_nodes_data, key=lambda x: x["name"].lower())}
-        data_cache_version += 1
+    container_dlist = defer.DeferredList(all_container_futures)
+    container_dlist.addCallback(lambda _: update_data_cache(all_nodes_data))
 
 
-def update_data_cache(all_nodes_data):
-    global data_cache
-    global data_cache_version
-    
-    all_nodes_data = sorted(all_nodes_data, key=lambda x: x['name'])
-
-    with data_lock:
-        data_cache = {"data": all_nodes_data}
-        data_cache_version += 1
+def data_has_changed(old_data, new_data):
+    return old_data != new_data
 
 
 def update_cache():
     try:
         deferreds = [
             deferToThread(
-                fetch_json_data, config.get("endpoint"), config.get("token"), "/nodes"
+                fetch_json_data, config.get(
+                    "endpoint"), config.get("token"), "/nodes"
             )
             for config in NODE_CONFIGS
         ]
 
         dlist = defer.DeferredList(deferreds)
-        dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
+        dlist.addCallback(process_results, NODE_CONFIGS)
         dlist.addCallback(lambda _: reactor.callLater(15, update_cache))
-
 
     except Exception as e:
         print(f"Error updating cache: {e}")
@@ -195,7 +213,7 @@ class MyServerProtocol(WebSocketServerProtocol):
     def onOpen(self):
         print("WebSocket connection open.")
         self.is_connected = True
-
+        self.sendMessage(json.dumps(data_cache).encode("utf-8"))
         reactor.callLater(0, self.send_updates)
 
     def send_updates(self):
@@ -205,14 +223,13 @@ class MyServerProtocol(WebSocketServerProtocol):
         try:
             if self.state == WebSocketServerProtocol.STATE_OPEN:
                 with data_lock:
-                    # Check if data version has been updated since the last send
-                    if data_cache_version != self.last_sent_version:
-                        self.sendMessage(json.dumps(data_cache).encode("utf-8"))
+                    if self.last_sent_version != data_cache_version:
+                        self.sendMessage(json.dumps(
+                            data_cache).encode("utf-8"))
                         self.last_sent_version = data_cache_version
-                        reactor.callLater(1, self.send_updates)
+                reactor.callLater(1, self.send_updates)
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
-
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
@@ -221,23 +238,31 @@ class MyServerProtocol(WebSocketServerProtocol):
         self.is_connected = False
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="WebSocket server for node data.")
+def main():
+    parser = argparse.ArgumentParser(
+        description="WebSocket server for node data.")
     parser.add_argument(
         "--port", type=int, required=True, help="Port to run the WebSocket server on."
     )
     args = parser.parse_args()
 
     try:
-        # update_cache()
+        print("Starting cache update loop...")
         reactor.callLater(0, update_cache)
-
+        print("Starting server...")
         factory = WebSocketServerFactory(f"ws://127.0.0.1:{args.port}")
         factory.protocol = MyServerProtocol
 
         reactor.listenTCP(args.port, factory)
-        print(f"Server running at {factory.url}")
         reactor.run()
 
     except Exception as e:
         print(f"Server error: {e}")
+
+
+if __name__ == "__main__":
+    # Load configurations
+    print("Loading configurations...")
+    with open(".nodes.json", "r") as f:
+        NODE_CONFIGS = json.load(f)
+    main()
