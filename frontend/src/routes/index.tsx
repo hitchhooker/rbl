@@ -69,7 +69,7 @@ export default function Home() {
 					</For>
 					</div>
 					) : 
-			<p class="text-xl md:text-2xl text-hex-010001">{states[wsState()]}...</p>
+			<p class="text-center text-xl md:text-3xl text-hex-010001">{states[wsState()]}...</p>
 			}
 			</main>
 	       );
