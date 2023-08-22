@@ -57,7 +57,7 @@ export default defineConfig({
     proxy: {
       // WebSocket proxying
       '/ws': {
-        target: 'ws://localhost:5050',
+        target: process.env.VITE_WS_URL,
         ws: true,
       },
     },

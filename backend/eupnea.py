@@ -6,6 +6,8 @@ import json
 from collections import deque
 import time
 import argparse
+import threading
+
 
 class CircularBuffer:
     def __init__(self, maxlen):
@@ -27,12 +29,14 @@ with open(".nodes.json", "r") as f:
 RATES_WINDOW = 5
 requests.packages.urllib3.disable_warnings()
 data_cache = {}
+data_lock = threading.Lock()
+data_cache_version = 0
 prev_data = {}
 
 
 def fetch_json_data(api_endpoint, token, path):
     HEADERS = {"Authorization": token}
-    TIMEOUT = 5  # in seconds
+    TIMEOUT = 25  # in seconds
 
     url = f"{api_endpoint}{path}"
     response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
@@ -124,6 +128,7 @@ def process_container_results(results, all_nodes_data):
 
 
 def process_results(results, all_nodes_data, NODE_CONFIGS):
+    global data_cache_version
     for (success, nodes), config in zip(results, NODE_CONFIGS):
         if not success:
             print(f"Error fetching nodes for config {config}: {nodes}")
@@ -140,9 +145,18 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
         container_dlist = defer.DeferredList(container_futures)
         container_dlist.addCallback(process_container_results, all_nodes_data)
 
+    # Locking the data update section
     global data_cache
-    data_cache = {"nodes": all_nodes_data}  # Updating the data_cache here.
+    with data_lock:
+        data_cache = {"data": all_nodes_data}  # Updating the data_cache here.
+        data_cache_version += 1  # Increment the data version
 
+def update_data_cache(all_nodes_data):
+    global data_cache
+    global data_cache_version
+    with data_lock:
+        data_cache = {"data": all_nodes_data}
+        data_cache_version += 1
 
 def update_cache():
     try:
@@ -157,16 +171,18 @@ def update_cache():
 
         dlist = defer.DeferredList(deferreds)
         dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
-        dlist.addCallback(lambda _: reactor.callLater(10, update_cache))  # Standardize to 10 seconds
+        dlist.addCallback(lambda _: update_data_cache(all_nodes_data))
+        dlist.addCallback(lambda _: reactor.callLater(30, update_cache))
 
     except Exception as e:
         print(f"Error updating cache: {e}")
+
 
 class MyServerProtocol(WebSocketServerProtocol):
     def __init__(self):
         super().__init__()
         self.is_connected = False
-        self.last_sent_data = None
+        self.last_sent_version = 0 
 
     def onConnect(self, request):
         print(f"Client connecting: {request.peer}")
@@ -175,11 +191,7 @@ class MyServerProtocol(WebSocketServerProtocol):
         print("WebSocket connection open.")
         self.is_connected = True
 
-        # Send whatever is in the cache immediately
-        self.sendMessage(json.dumps(data_cache).encode("utf-8"))
-
-        # Continue by sending updates every 5 seconds
-        reactor.callLater(5, self.send_updates)
+        reactor.callLater(0, self.send_updates)
 
     def send_updates(self):
         if not self.is_connected:
@@ -187,14 +199,16 @@ class MyServerProtocol(WebSocketServerProtocol):
 
         try:
             if self.state == WebSocketServerProtocol.STATE_OPEN:
-                # Check if data has been updated since the last send
-                if data_cache != self.last_sent_data:
-                    self.sendMessage(json.dumps(data_cache).encode("utf-8"))
-                    self.last_sent_data = data_cache.copy()
+                # Locking the data sending section
+                with data_lock:
+                    # Check if data version has been updated since the last send
+                    if data_cache_version != self.last_sent_version:
+                        self.sendMessage(json.dumps(data_cache).encode("utf-8"))
+                        self.last_sent_version = data_cache_version
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
 
-            reactor.callLater(30, self.send_updates)  # update every 10 seconds
+            reactor.callLater(30, self.send_updates)
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
@@ -205,12 +219,14 @@ class MyServerProtocol(WebSocketServerProtocol):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="WebSocket server for node data.")
-    parser.add_argument('--port', type=int, required=True, help="Port to run the WebSocket server on.")
+    parser.add_argument(
+        "--port", type=int, required=True, help="Port to run the WebSocket server on."
+    )
     args = parser.parse_args()
 
     try:
-        # Preload the cache before starting the reactor.
-        update_cache()
+        # update_cache()
+        reactor.callLater(0, update_cache)
 
         factory = WebSocketServerFactory(f"ws://127.0.0.1:{args.port}")
         factory.protocol = MyServerProtocol
