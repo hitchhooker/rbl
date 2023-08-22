@@ -36,7 +36,7 @@ prev_data = {}
 
 def fetch_json_data(api_endpoint, token, path):
     HEADERS = {"Authorization": token}
-    TIMEOUT = 25  # in seconds
+    TIMEOUT = 15  # in seconds
 
     url = f"{api_endpoint}{path}"
     response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
@@ -177,12 +177,12 @@ def update_cache():
 
         dlist = defer.DeferredList(deferreds)
         dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
-        dlist.addCallback(lambda _: reactor.callLater(30, update_cache))
+        dlist.addCallback(lambda _: reactor.callLater(15, update_cache))
 
 
     except Exception as e:
         print(f"Error updating cache: {e}")
-        reactor.callLater(30, update_cache)
+        reactor.callLater(15, update_cache)
 
 
 class MyServerProtocol(WebSocketServerProtocol):
