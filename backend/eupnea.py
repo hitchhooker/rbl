@@ -178,6 +178,7 @@ def update_cache():
 
     except Exception as e:
         print(f"Error updating cache: {e}")
+        reactor.callLater(30, update_cache)
 
 
 class MyServerProtocol(WebSocketServerProtocol):
@@ -201,16 +202,15 @@ class MyServerProtocol(WebSocketServerProtocol):
 
         try:
             if self.state == WebSocketServerProtocol.STATE_OPEN:
-                # Locking the data sending section
                 with data_lock:
                     # Check if data version has been updated since the last send
                     if data_cache_version != self.last_sent_version:
                         self.sendMessage(json.dumps(data_cache).encode("utf-8"))
                         self.last_sent_version = data_cache_version
+                        reactor.callLater(1, self.send_updates)
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
 
-            reactor.callLater(30, self.send_updates)
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
