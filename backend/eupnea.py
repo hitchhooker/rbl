@@ -166,8 +166,6 @@ def update_data_cache(all_nodes_data):
 
 def update_cache():
     try:
-        all_nodes_data = []
-
         deferreds = [
             deferToThread(
                 fetch_json_data, config.get("endpoint"), config.get("token"), "/nodes"
