@@ -124,7 +124,7 @@ def get_node_data(api_endpoint, token, node):
                 containers,
             )
         ),
-        "last_updated": time.time()
+        "last_updated": time.time(),
     }
 
 
@@ -132,8 +132,11 @@ def prune_old_data():
     global data_cache
     with data_lock:
         current_time = time.time()
-        data_cache["data"] = [node for node in data_cache.get(
-            "data", []) if current_time - node.get("last_updated", 0) < PRUNE_THRESHOLD]
+        data_cache["data"] = [
+            node
+            for node in data_cache.get("data", [])
+            if current_time - node.get("last_updated", 0) < PRUNE_THRESHOLD
+        ]
     # Schedule next pruning
     reactor.callLater(60, prune_old_data)
 
@@ -153,25 +156,11 @@ def update_data_cache(new_data):
             data_cache_version += 1
 
 
-def update_cache():
-    fetch_futures = [
-        deferToThread(fetch_json_data, config.get(
-            "endpoint"), config.get("token"), "/nodes")
-        for config in NODE_CONFIGS
-    ]
-
-    fetch_dlist = defer.DeferredList(fetch_futures)
-    fetch_dlist.addCallback(process_results)
-
-    # Schedule the next update
-    reactor.callLater(60, update_cache)
-
-
-def process_results(results):
+def process_results(results, configs):
     all_nodes_data = []
     all_container_futures = []
 
-    for (success, nodes), config in zip(results, NODE_CONFIGS):
+    for (success, nodes), config in zip(results, configs):
         if not success:
             print(f"Error fetching nodes for config {config}: {nodes}")
             continue
@@ -191,6 +180,25 @@ def process_results(results):
 
 def data_has_changed(old_data, new_data):
     return old_data != new_data
+
+
+def update_cache():
+    try:
+        deferreds = [
+            deferToThread(
+                fetch_json_data, config.get(
+                    "endpoint"), config.get("token"), "/nodes"
+            )
+            for config in NODE_CONFIGS
+        ]
+
+        dlist = defer.DeferredList(deferreds)
+        dlist.addCallback(process_results, NODE_CONFIGS)
+        dlist.addCallback(lambda _: reactor.callLater(15, update_cache))
+
+    except Exception as e:
+        print(f"Error updating cache: {e}")
+        reactor.callLater(15, update_cache)
 
 
 class MyServerProtocol(WebSocketServerProtocol):
@@ -233,8 +241,9 @@ class MyServerProtocol(WebSocketServerProtocol):
 def main():
     parser = argparse.ArgumentParser(
         description="WebSocket server for node data.")
-    parser.add_argument("--port", type=int, required=True,
-                        help="Port to run the WebSocket server on.")
+    parser.add_argument(
+        "--port", type=int, required=True, help="Port to run the WebSocket server on."
+    )
     args = parser.parse_args()
 
     try:
