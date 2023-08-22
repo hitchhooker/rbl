@@ -136,7 +136,7 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
 
         api_endpoint = config.get("endpoint")
         token = config.get("token")
-        nodes = sorted(nodes, key=lambda x: x.get("node", ""))
+        nodes = sorted(nodes, key=lambda x: x.get("node", "").lower())
 
         container_futures = [
             deferToThread(get_node_data, api_endpoint, token, node) for node in nodes
@@ -144,6 +144,7 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
 
         container_dlist = defer.DeferredList(container_futures)
         container_dlist.addCallback(process_container_results, all_nodes_data)
+        container_dlist.addCallback(lambda _: update_data_cache(all_nodes_data))
 
     # Locking the data update section
     global data_cache
@@ -155,6 +156,9 @@ def process_results(results, all_nodes_data, NODE_CONFIGS):
 def update_data_cache(all_nodes_data):
     global data_cache
     global data_cache_version
+    
+    all_nodes_data = sorted(all_nodes_data, key=lambda x: x['name'])
+
     with data_lock:
         data_cache = {"data": all_nodes_data}
         data_cache_version += 1
@@ -173,8 +177,8 @@ def update_cache():
 
         dlist = defer.DeferredList(deferreds)
         dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
-        dlist.addCallback(lambda _: update_data_cache(all_nodes_data))
         dlist.addCallback(lambda _: reactor.callLater(30, update_cache))
+
 
     except Exception as e:
         print(f"Error updating cache: {e}")
