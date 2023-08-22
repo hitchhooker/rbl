@@ -1,13 +1,11 @@
 from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
 from twisted.internet import reactor, defer
 from twisted.internet.threads import deferToThread
-from concurrent.futures import ThreadPoolExecutor
 import requests
 import json
 from collections import deque
 import time
 import argparse
-
 
 class CircularBuffer:
     def __init__(self, maxlen):
@@ -27,12 +25,9 @@ with open(".nodes.json", "r") as f:
     NODE_CONFIGS = json.load(f)
 
 RATES_WINDOW = 5
-
 requests.packages.urllib3.disable_warnings()
-
 data_cache = {}
 prev_data = {}
-executor = ThreadPoolExecutor(max_workers=16)
 
 
 def fetch_json_data(api_endpoint, token, path):
@@ -162,19 +157,10 @@ def update_cache():
 
         dlist = defer.DeferredList(deferreds)
         dlist.addCallback(process_results, all_nodes_data, NODE_CONFIGS)
-        dlist.addCallback(lambda _: reactor.callLater(5, update_cache))
+        dlist.addCallback(lambda _: reactor.callLater(10, update_cache))  # Standardize to 10 seconds
 
-            container_futures = [executor.submit(
-                get_node_data, api_endpoint, token, node) for node in nodes]
-            nodes_data = [f.result() for f in container_futures]
-
-            all_nodes_data.extend(nodes_data)
-
-        data_cache["data"] = all_nodes_data
-        reactor.callLater(30, update_cache)
     except Exception as e:
         print(f"Error updating cache: {e}")
-
 
 class MyServerProtocol(WebSocketServerProtocol):
     def __init__(self):
@@ -218,9 +204,13 @@ class MyServerProtocol(WebSocketServerProtocol):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="WebSocket server for node data.")
+    parser.add_argument('--port', type=int, required=True, help="Port to run the WebSocket server on.")
+    args = parser.parse_args()
+
     try:
         # Preload the cache before starting the reactor.
-        reactor.callLater(0, update_cache)
+        update_cache()
 
         factory = WebSocketServerFactory(f"ws://127.0.0.1:{args.port}")
         factory.protocol = MyServerProtocol
@@ -228,5 +218,6 @@ if __name__ == "__main__":
         reactor.listenTCP(args.port, factory)
         print(f"Server running at {factory.url}")
         reactor.run()
+
     except Exception as e:
         print(f"Server error: {e}")
