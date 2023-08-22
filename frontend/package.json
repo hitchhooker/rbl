@@ -3,7 +3,9 @@
   "scripts": {
     "dev": "solid-start dev",
     "build": "solid-start build",
-    "start": "solid-start start"
+    "start": "solid-start start",
+    "build:prod": "NODE_ENV=prod solid-start build",
+    "start:prod": "NODE_ENV=prod solid-start start"
   },
   "type": "module",
   "devDependencies": {

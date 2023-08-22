@@ -4,7 +4,6 @@ import NodeInfo from '~/components/NodeInfo';
 import { Title } from "solid-start";
 
 
-
 export default function Home() {
 	const [wsState, setWsState] = createSignal(0);
 	const [data, setData] = createSignal([]);
@@ -17,7 +16,7 @@ export default function Home() {
 			return;
 		}
 
-		const localWs = createWS("wss://ws.rbl.rotko.net/");
+		const localWs = createWS(import.meta.env.VITE_WS_URL);
 		setWs(localWs);
 
 		localWs.addEventListener("open", () => {

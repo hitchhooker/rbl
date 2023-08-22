@@ -6,7 +6,7 @@ After=network.target
 User=eupneauser
 Group=eupneauser
 WorkingDirectory=/opt/gh/rbl/frontend
-ExecStart=/usr/local/bin/pnpm run dev --port 6051
+ExecStart=/usr/local/bin/pnpm run start --port 6050
 Restart=always
 Environment=PATH=/usr/bin:/usr/local/bin
 Environment=NODE_ENV=production
