@@ -3,3 +3,4 @@ venv/
 build/
 dist/
 eupnea.spec
+.nodes.json

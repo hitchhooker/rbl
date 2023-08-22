@@ -1,11 +1,10 @@
 from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
 from twisted.internet import reactor
+from concurrent.futures import ThreadPoolExecutor
 import requests
-import os
-from dotenv import load_dotenv
 import json
-import time
 from collections import deque
+import time
 
 
 class CircularBuffer:
@@ -22,38 +21,36 @@ class CircularBuffer:
         return self.data[-1] if self.data else None
 
 
-load_dotenv()
+with open(".nodes.json", "r") as f:
+    NODE_CONFIGS = json.load(f)
 
-API_ENDPOINT = os.environ.get("API_ENDPOINT")
-TOKEN = os.environ.get("TOKEN")
-HEADERS = {"Authorization": TOKEN}
-RATES_WINDOW = 30  # calculate rates over the last 30 data points
+RATES_WINDOW = 5
 
 requests.packages.urllib3.disable_warnings()
 
 data_cache = {}
 prev_data = {}
+executor = ThreadPoolExecutor(max_workers=8)
 
 
-def fetch_json_data(endpoint):
-    try:
-        url = f"{API_ENDPOINT}{endpoint}"
-        #    print(f"Fetching data from: {url}")
-        response = requests.get(url, headers=HEADERS, verify=False)
-        response.raise_for_status()
-        data = response.json().get("data", {})
-        #    print(f"Data fetched: {data}")
-        return data
-    except Exception as e:
-        print(f"Error in fetch_json_data for {endpoint}: {e}")
-        return {}
+def fetch_json_data(api_endpoint, token, path):
+    HEADERS = {"Authorization": token}
+    TIMEOUT = 3  # in seconds
+
+    url = f"{api_endpoint}{path}"
+    response = requests.get(url, headers=HEADERS,
+                            verify=False, timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json().get("data", {})
 
 
-def get_container_data(node_name, container):
+def get_container_data(api_endpoint, token, node_name, container):
     container_id = container.get("vmid")
-    container_info = fetch_json_data(f"/nodes/{node_name}/lxc/{container_id}/config")
+    container_info = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/lxc/{container_id}/config"
+    )
     container_status = fetch_json_data(
-        f"/nodes/{node_name}/lxc/{container_id}/status/current"
+        api_endpoint, token, f"/nodes/{node_name}/lxc/{container_id}/status/current"
     )
 
     current_netin = container_status.get("netin", 0)
@@ -105,10 +102,12 @@ def calculate_rate(current, prev, time_elapsed):
     return (current - prev) * 8 / time_elapsed  # bps rate
 
 
-def get_node_data(node):
+def get_node_data(api_endpoint, token, node):
     node_name = node.get("node")
-    node_status = fetch_json_data(f"/nodes/{node_name}/status")
-    containers = fetch_json_data(f"/nodes/{node_name}/lxc")
+    node_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/status")
+    containers = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/lxc")
     containers = sorted(containers, key=lambda x: x.get("vmid", 0))
 
     return {
@@ -116,18 +115,36 @@ def get_node_data(node):
         "cpu": node_status.get("cpu", 0),
         "disk": int(node.get("disk") / (1024 * 1024 * 1024)),
         "containers": list(
-            map(lambda container: get_container_data(node_name, container), containers)
+            map(
+                lambda container: get_container_data(
+                    api_endpoint, token, node_name, container
+                ),
+                containers,
+            )
         ),
     }
 
 
 def update_cache():
     try:
-        nodes = fetch_json_data("/nodes")
-        nodes = sorted(nodes, key=lambda x: x.get("node", ""))
-        nodes_data = list(map(get_node_data, nodes))
-        data_cache["data"] = nodes_data
-        reactor.callLater(2, update_cache)  # adjust interval as needed
+        all_nodes_data = []
+
+        futures = [executor.submit(fetch_json_data, config.get(
+            "endpoint"), config.get("token"), "/nodes") for config in NODE_CONFIGS]
+
+        for config, future in zip(NODE_CONFIGS, futures):
+            api_endpoint = config.get("endpoint")
+            token = config.get("token")
+            nodes = sorted(future.result(), key=lambda x: x.get("node", ""))
+
+            container_futures = [executor.submit(
+                get_node_data, api_endpoint, token, node) for node in nodes]
+            nodes_data = [f.result() for f in container_futures]
+
+            all_nodes_data.extend(nodes_data)
+
+        data_cache["data"] = all_nodes_data
+        reactor.callLater(5, update_cache)
     except Exception as e:
         print(f"Error updating cache: {e}")
 
@@ -159,7 +176,7 @@ class MyServerProtocol(WebSocketServerProtocol):
             else:
                 print("WebSocket is not in an open state. Skipping sending updates.")
 
-            reactor.callLater(2, self.send_updates)  # update every 2 seconds
+            reactor.callLater(5, self.send_updates)  # update every 10 seconds
         except Exception as e:
             print(f"Error in send_updates: {e}")
 
