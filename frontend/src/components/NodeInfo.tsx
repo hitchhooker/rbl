@@ -12,7 +12,6 @@ interface NodeProps {
     memory_total: number;
     swap_used: number;
     swap_total: number;
-    disk: number;
     containers: Array<typeof ContainerInfo>;
     storage_type: string;
     storage_used: number;
@@ -26,8 +25,8 @@ export default function NodeInfo(props: NodeProps): JSX.Element {
       <h2 class="text-2xl text-center fw-bold font-lobster">{props.node.name}</h2>
       <h3 class="text-lg text-center mt-3">System</h3>
       <h4>CPU</h4>
-      <p>Model: {props.node.cpu_model}</p>
-      <p>Cores: {props.node.cpu_cores}</p>
+      <p>{props.node.cpu_model}</p>
+      <p>CPUs: {props.node.cpu_cores}</p>
       <UsageBar current={props.node.cpu} max={1} />
       <h4>Memory</h4>
       <UsageBar current={props.node.memory_used} max={props.node.memory_total} />
