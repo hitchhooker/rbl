@@ -88,6 +88,7 @@ def get_node_data(api_endpoint, token, node):
         "cpu": node_status.get("cpu", 0),
         "cpu_model": node_status.get('cpuinfo', {}).get('model', 'Unknown'),
         "cpu_cores": node_status.get('cpuinfo', {}).get('cpus', '0'),
+        "cpu_mhz": node_status.get('cpuinfo', {}).get('mhz', '0'),
         "memory_total": node_status.get("memory", {}).get("total", 0),
         "memory_used": node_status.get("memory", {}).get("used", 0),
         "swap_total": node_status.get("swap", {}).get("total", 0),
