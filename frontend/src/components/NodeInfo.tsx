@@ -25,15 +25,15 @@ export default function NodeInfo(props: NodeProps): JSX.Element {
     <div class="p-4 border m-2 bg-hex-A3916F bg-op-80 filter-drop-shadow text-hex-010001 rounded shadow-md">
       <h2 class="text-2xl text-center fw-bold font-lobster">{props.node.name}</h2>
       <h3 class="text-lg text-center mt-3">System</h3>
-      <h4>CPU</h3>
-      <p>Model: {node.cpu_model}</p>
-      <p>Cores: {node.cpu_cores}</p>
+      <h4>CPU</h4>
+      <p>Model: {props.node.cpu_model}</p>
+      <p>Cores: {props.node.cpu_cores}</p>
       <UsageBar current={props.node.cpu} max={1} />
-      <h4>Memory</h3>
-      <UsageBar used={node.memory_used} total={node.memory_total} />
-      <h4>Swap</h3>
-      <UsageBar used={node.swap_used} total={node.swap_total} />
-      <h4>{props.node.storage_type}_storage</h3>
+      <h4>Memory</h4>
+      <UsageBar current={props.node.memory_used} max={props.node.memory_total} />
+      <h4>Swap</h4>
+      <UsageBar current={props.node.swap_used} max={props.node.swap_total} />
+      <h4>{props.node.storage_type}_storage</h4>
           <UsageBar current={props.node.storage_used} max={props.node.storage_total} />
           ({formatBytes(props.node.storage_used)} / {formatBytes(props.node.storage_total)})
       <h3 class="text-lg text-center mt-3">Containers</h3>
