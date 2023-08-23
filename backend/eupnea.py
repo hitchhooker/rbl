@@ -40,10 +40,19 @@ def fetch_json_data(api_endpoint, token, path):
     TIMEOUT = 15
 
     url = f"{api_endpoint}{path}"
-    response = requests.get(url, headers=HEADERS,
-                            verify=False, timeout=TIMEOUT)
-    response.raise_for_status()
-    return response.json().get("data", {})
+    try:
+        response = requests.get(url, headers=HEADERS, verify=False, timeout=TIMEOUT)
+        response.raise_for_status()
+        return response.json().get("data", {})
+
+    except requests.exceptions.ConnectTimeout:
+        print(f"Connection timed out for {url}. Skipping...")
+        return {}  # Return an empty dictionary or another suitable default value
+
+    # Handle other potential exceptions if needed
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while fetching data from {url}: {e}")
+        return {}
 
 
 async def async_fetch_json_data(session, api_endpoint, token, path):
