@@ -87,14 +87,13 @@ def get_node_data(api_endpoint, token, node):
         "name": node_name,
         "cpu": node_status.get("cpu", 0),
         "cpu_model": node_status.get('cpuinfo', {}).get('model', 'Unknown'),
-        "cpu_cores": node_status.get("cpus", 0),
+        "cpu_cores": node_status.get('cpuinfo', {}).get('cpus', '0'),
         "memory_total": node_status.get("memory", {}).get("total", 0),
         "memory_used": node_status.get("memory", {}).get("used", 0),
         "swap_total": node_status.get("swap", {}).get("total", 0),
         "swap_used": node_status.get("swap", {}).get("used", 0),
         "kernel_version": node_status.get('kversion', 'Unknown'),
         "proxmox_version": node_status.get('pveversion', 'Unknown'),
-        "disk": int(node.get("disk") / (1024 * 1024 * 1024)),
         "containers": list(
             map(
                 lambda container: get_container_data(
