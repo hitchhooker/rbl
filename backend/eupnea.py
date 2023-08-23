@@ -46,8 +46,57 @@ def fetch_json_data(api_endpoint, token, path):
     return response.json().get("data", {})
 
 
+async def async_fetch_json_data(session, api_endpoint, token, path):
+    headers = {'Authorization': f'Bearer {token}'}
+    # Notice the ssl=False
+    async with session.get(f'{api_endpoint}{path}', headers=headers, ssl=False) as resp:
+        return await resp.json()
+
+
 def calculate_rate(current, prev, time_elapsed):
     return (current - prev) * 8 / time_elapsed  # bps rate
+
+
+def get_node_data(api_endpoint, token, node):
+    node_name = node.get("node")
+    node_status = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/status")
+    containers = fetch_json_data(
+        api_endpoint, token, f"/nodes/{node_name}/lxc")
+    containers = sorted(containers, key=lambda x: x.get("vmid", 0))
+
+    storage_types = fetch_storage_types(api_endpoint, token, node_name)
+
+    # Here's where you can check the type of storage and fetch accordingly
+    storage_data = {}
+    if "zfs_storage" in storage_types:
+        storage_data = get_zfs_storage_data(api_endpoint, token, node_name)
+    elif "btrfs_storage" in storage_types:
+        storage_data = get_btrfs_storage_data(api_endpoint, token, node_name)
+
+    return {
+        "name": node_name,
+        "cpu": node_status.get("cpu", 0),
+        "cpu_model": node_status.get('cpuinfo', {}).get('model', 'Unknown'),
+        "cpu_cores": node_status.get("cpus", 0),
+        "memory_total": node_status.get("memory", {}).get("total", 0),
+        "memory_used": node_status.get("memory", {}).get("used", 0),
+        "swap_total": node_status.get("swap", {}).get("total", 0),
+        "swap_used": node_status.get("swap", {}).get("used", 0),
+        "kernel_version": node_status.get('kversion', 'Unknown'),
+        "proxmox_version": node_status.get('pveversion', 'Unknown'),
+        "disk": int(node.get("disk") / (1024 * 1024 * 1024)),
+        "containers": list(
+            map(
+                lambda container: get_container_data(
+                    api_endpoint, token, node_name, container
+                ),
+                containers,
+            )
+        ),
+        **storage_data,
+        "last_updated": time.time(),
+    }
 
 
 def get_container_data(api_endpoint, token, node_name, container):
@@ -132,40 +181,6 @@ def get_btrfs_storage_data(api_endpoint, token, node_name):
     }
 
 
-def get_node_data(api_endpoint, token, node):
-    node_name = node.get("node")
-    node_status = fetch_json_data(
-        api_endpoint, token, f"/nodes/{node_name}/status")
-    containers = fetch_json_data(
-        api_endpoint, token, f"/nodes/{node_name}/lxc")
-    containers = sorted(containers, key=lambda x: x.get("vmid", 0))
-
-    storage_types = fetch_storage_types(api_endpoint, token, node_name)
-
-    # Here's where you can check the type of storage and fetch accordingly
-    storage_data = {}
-    if "zfs_storage" in storage_types:
-        storage_data = get_zfs_storage_data(api_endpoint, token, node_name)
-    elif "btrfs_storage" in storage_types:
-        storage_data = get_btrfs_storage_data(api_endpoint, token, node_name)
-
-    return {
-        "name": node_name,
-        "cpu": node_status.get("cpu", 0),
-        "disk": int(node.get("disk") / (1024 * 1024 * 1024)),
-        "containers": list(
-            map(
-                lambda container: get_container_data(
-                    api_endpoint, token, node_name, container
-                ),
-                containers,
-            )
-        ),
-        "last_updated": time.time(),
-        **storage_data,
-    }
-
-
 def prune_old_data():
     global data_cache
     with data_lock:
@@ -185,8 +200,7 @@ def update_data_cache(new_data):
         # Check if data has changed
         if data_has_changed(data_cache.get("data", []), new_data):
             # Merge data
-            old_data_map = {node["name"]
-                : node for node in data_cache.get("data", [])}
+            old_data_map = {node["name"]                            : node for node in data_cache.get("data", [])}
             for node in new_data:
                 old_data_map[node["name"]] = node
             merged_data = list(old_data_map.values())
